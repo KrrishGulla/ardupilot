@@ -58,6 +58,7 @@
 #include "AP_RangeFinder_Lua.h"
 #include "AP_RangeFinder_NoopLoop.h"
 #include "AP_RangeFinder_TOFSenseP_CAN.h"
+#include "AP_RangeFinder_JIYI_CAN.h"
 #include "AP_RangeFinder_NRA24_CAN.h"
 #include "AP_RangeFinder_TOFSenseF_I2C.h"
 #include "AP_RangeFinder_JRE_Serial.h"
@@ -584,6 +585,11 @@ __INITFUNC__ void RangeFinder::detect_instance(uint8_t instance, uint8_t& serial
 #if AP_RANGEFINDER_TOFSENSEP_CAN_ENABLED
     case Type::TOFSenseP_CAN:
         _add_backend(NEW_NOTHROW AP_RangeFinder_TOFSenseP_CAN(state[instance], params[instance]), instance);
+        break;
+#endif
+#if AP_RANGEFINDER_JIYI_CAN_ENABLED
+    case Type::JIYI_CAN:
+        _add_backend(NEW_NOTHROW AP_RangeFinder_JIYI_CAN(state[instance], params[instance]), instance);
         break;
 #endif
 #if AP_RANGEFINDER_NRA24_CAN_DRIVER_ENABLED
