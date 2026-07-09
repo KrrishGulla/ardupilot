@@ -95,6 +95,9 @@ public:
 #if AP_PROXIMITY_HEXSOONRADAR_ENABLED
         Hexsoon_Radar = 18,
 #endif
+#if AP_PROXIMITY_JIYI_CAN_ENABLED
+        JIYI_CAN = 19,
+#endif
     };
 
     enum class Status {
