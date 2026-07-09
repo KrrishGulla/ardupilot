@@ -1,68 +1,53 @@
 #include <AP_HAL/AP_HAL.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include "AP_RangeFinder_JIYI_CAN.h"
-#include <AP_HAL/utility/sparse-endian.h>
 
 #if AP_RANGEFINDER_JIYI_CAN_ENABLED
 
 /*
-  Handle an incoming CAN frame from a JIYI Microbrain radar sensor.
+  Handle an incoming CAN frame from a JIYI UAV-H30-1 altitude radar.
 
-  Both the UAV-R21-1 (obstacle avoidance) and UAV-H30-1 (altitude) models
-  share the same 8-byte standard-frame protocol:
-
-    Byte 0–1 : Magic word  0xEA 0x2D  (big-endian uint16 = 0xEA2D)
-    Byte 2–3 : Msg type    0x04 0x00  (big-endian uint16 = 0x0400)
-    Byte 4–5 : Distance    uint16 big-endian, centimetres
-               0x0000 indicates no target detected
-    Byte 6–7 : SNR / checksum (not used for ranging)
-
-  Returns true if the frame was a valid JIYI distance frame and was consumed.
+  CAN frame format:
+    Frame type : CAN2.0A 29-bit extended frame
+    CAN ID     : 0x75C
+    DLC        : 6 bytes (3 targets x 2 bytes each)
+    Byte 0-1   : Target1 distance, big-endian uint16, cm (0 = no target)
+    Byte 2-3   : Target2 distance, big-endian uint16, cm (0 = no target)
+    Byte 4-5   : Target3 distance, big-endian uint16, cm (0 = no target)
 */
 bool AP_RangeFinder_JIYI_CAN::handle_frame(AP_HAL::CANFrame &frame)
 {
     WITH_SEMAPHORE(_sem);
 
-    // Reject extended frames — JIYI uses standard 11-bit IDs
-    if (frame.isExtended()) {
+    // H30-1 uses 29-bit extended frames only
+    if (!frame.isExtended()) {
         return false;
     }
 
-    // Verify CAN ID matches the configured sensor address
-    const uint16_t id = frame.id & AP_HAL::CANFrame::MaskStdID;
-    if (!is_correct_id(id)) {
+    // Filter by H30-1 CAN ID: 0x75C
+    const uint32_t id = frame.id & AP_HAL::CANFrame::MaskExtID;
+    if (id != JIYI_H30_CAN_ID) {
         return false;
     }
 
-    // Must be exactly 8 bytes
-    if (frame.dlc != 8) {
+    // Must be exactly 6 bytes
+    if (frame.dlc != 6) {
         return false;
     }
 
-    // ---------------------------------------------------------------
-    // Byte 0–1: magic word (big-endian)
-    // ---------------------------------------------------------------
-    const uint16_t magic = be16toh_ptr(&frame.data[0]);
-    if (magic != JIYI_MAGIC) {
-        return false;
-    }
+    // Read all 3 targets (big-endian uint16, cm each)
+    const uint16_t t1 = (uint16_t(frame.data[0]) << 8) | frame.data[1];
+    const uint16_t t2 = (uint16_t(frame.data[2]) << 8) | frame.data[3];
+    const uint16_t t3 = (uint16_t(frame.data[4]) << 8) | frame.data[5];
 
-    // ---------------------------------------------------------------
-    // Byte 2–3: message type word (big-endian)
-    // Only process distance-data frames; silently discard others.
-    // ---------------------------------------------------------------
-    const uint16_t msg_type = be16toh_ptr(&frame.data[2]);
-    if (msg_type != JIYI_MSG_DIST) {
-        return true;  // consumed but not a distance frame
-    }
+    // Find minimum non-zero target (closest valid ground return)
+    uint16_t dist_cm = 0;
+    if (t1 > 0) dist_cm = t1;
+    if (t2 > 0 && (dist_cm == 0 || t2 < dist_cm)) dist_cm = t2;
+    if (t3 > 0 && (dist_cm == 0 || t3 < dist_cm)) dist_cm = t3;
 
-    // ---------------------------------------------------------------
-    // Byte 4–5: distance in centimetres (big-endian uint16)
-    // ---------------------------------------------------------------
-    const uint16_t dist_cm = be16toh_ptr(&frame.data[4]);
-
-    if (dist_cm == JIYI_NO_TARGET) {
-        // Sensor reports no target — do not update the distance
+    if (dist_cm == 0) {
+        // no target detected
         return true;
     }
 

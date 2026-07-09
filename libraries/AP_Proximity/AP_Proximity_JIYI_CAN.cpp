@@ -3,19 +3,10 @@
 #if AP_PROXIMITY_JIYI_CAN_ENABLED
 
 #include <AP_HAL/AP_HAL.h>
-#include <AP_HAL/utility/sparse-endian.h>
 #include <AP_BoardConfig/AP_BoardConfig.h>
 #include "AP_Proximity_JIYI_CAN.h"
 
 const AP_Param::GroupInfo AP_Proximity_JIYI_CAN::var_info[] = {
-
-    // @Param: RECV_ID
-    // @DisplayName: CAN receive ID
-    // @Description: The receive ID of the CAN frames. Zero means all IDs accepted.
-    // @Range: 0 65535
-    // @User: Advanced
-    AP_GROUPINFO("RECV_ID", 1, AP_Proximity_JIYI_CAN, receive_id, 0),
-
     AP_GROUPEND
 };
 
@@ -52,47 +43,44 @@ bool AP_Proximity_JIYI_CAN::handle_frame(AP_HAL::CANFrame &frame)
 {
     WITH_SEMAPHORE(_sem);
 
-    // reject extended frames
-    if (frame.isExtended()) {
+    // R21-1 uses 29-bit extended frames only
+    if (!frame.isExtended()) {
         return false;
     }
 
-    // check receive ID filter
-    const uint16_t id = frame.id & AP_HAL::CANFrame::MaskStdID;
-    if (receive_id > 0 && id != uint32_t(receive_id)) {
+    // Filter by CAN ID — accept front (0x73C) and rear (0x74C)
+    const uint32_t id = frame.id & AP_HAL::CANFrame::MaskExtID;
+    if (id != JIYI_R21_CAN_ID_FRONT && id != JIYI_R21_CAN_ID_REAR) {
         return false;
     }
 
-    // must be 8 bytes
-    if (frame.dlc != 8) {
+    // R21-1 sends 6 bytes (3 targets x 2 bytes each)
+    if (frame.dlc != 6) {
         return false;
     }
 
-    // bytes 0-1: magic word
-    const uint16_t magic = be16toh_ptr(&frame.data[0]);
-    if (magic != JIYI_MAGIC) {
-        return false;
-    }
+    // Read all 3 targets (big-endian uint16, cm each)
+    const uint16_t t1 = (uint16_t(frame.data[0]) << 8) | frame.data[1];
+    const uint16_t t2 = (uint16_t(frame.data[2]) << 8) | frame.data[3];
+    const uint16_t t3 = (uint16_t(frame.data[4]) << 8) | frame.data[5];
 
-    // bytes 2-3: message type
-    const uint16_t msg_type = be16toh_ptr(&frame.data[2]);
-    if (msg_type != JIYI_MSG_DIST) {
-        return true;  // consumed but not a distance frame
-    }
+    // Find minimum non-zero target (closest obstacle)
+    uint16_t dist_cm = 0;
+    if (t1 > 0) dist_cm = t1;
+    if (t2 > 0 && (dist_cm == 0 || t2 < dist_cm)) dist_cm = t2;
+    if (t3 > 0 && (dist_cm == 0 || t3 < dist_cm)) dist_cm = t3;
 
-    // bytes 4-5: distance in cm
-    const uint16_t dist_cm = be16toh_ptr(&frame.data[4]);
-    if (dist_cm == JIYI_NO_TARGET) {
+    if (dist_cm == 0) {
         return true;
     }
 
     const float dist_m = dist_cm * 0.01f;
 
-    if (dist_m < JIYI_MIN_RANGE_M || dist_m > JIYI_MAX_RANGE_M) {
+    if (dist_m < JIYI_R21_MIN_RANGE_M || dist_m > JIYI_R21_MAX_RANGE_M) {
         return true;
     }
 
-    // yaw angle comes from the sensor orientation set in params
+    // yaw = 0 means forward (orientation handled by PRX1_ORIENT param)
     const float yaw = correct_angle_for_orientation(0.0f);
 
     if (!ignore_reading(yaw, dist_m)) {

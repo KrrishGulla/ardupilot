@@ -51,6 +51,8 @@ private:
     // Magic word in bytes 0–1 (big-endian): 0xEA2D
     static constexpr uint16_t JIYI_MAGIC     = 0xEA2D;
 
+    static constexpr uint32_t JIYI_H30_CAN_ID = 0x75C;
+
     // Message-type word in bytes 2–3 that carries distance data: 0x0400
     static constexpr uint16_t JIYI_MSG_DIST  = 0x0400;
 
