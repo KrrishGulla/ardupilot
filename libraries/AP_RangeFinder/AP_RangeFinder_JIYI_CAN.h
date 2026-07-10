@@ -48,16 +48,8 @@ public:
     bool handle_frame(AP_HAL::CANFrame &frame) override;
 
 private:
-    // Magic word in bytes 0–1 (big-endian): 0xEA2D
+    static constexpr uint16_t JIYI_CAN_ID    = 0x00D6;
     static constexpr uint16_t JIYI_MAGIC     = 0xEA2D;
-
-    static constexpr uint32_t JIYI_H30_CAN_ID = 0x75C;
-
-    // Message-type word in bytes 2–3 that carries distance data: 0x0400
     static constexpr uint16_t JIYI_MSG_DIST  = 0x0400;
-
-    // Sentinel value meaning "no target detected"
-    static constexpr uint16_t JIYI_NO_TARGET = 0x0000;
 };
-
 #endif  // AP_RANGEFINDER_JIYI_CAN_ENABLED
